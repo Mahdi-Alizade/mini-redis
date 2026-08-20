@@ -1,7 +1,13 @@
 """Automated unit and integration test suite for Mini-Redis."""
 
+import os
+import sys
 import time
 import pytest
+
+# Ensure root directory is in sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from src.protocol import RESPParser, ProtocolError
 from src.datastore import DataStore
 from src.commands import CommandHandler
