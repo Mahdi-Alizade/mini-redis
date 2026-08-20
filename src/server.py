@@ -3,9 +3,15 @@
 import asyncio
 import logging
 from typing import Optional
-from src.commands import CommandHandler
-from src.datastore import DataStore
-from src.protocol import RESPParser, ProtocolError
+
+try:
+    from src.commands import CommandHandler
+    from src.datastore import DataStore
+    from src.protocol import RESPParser, ProtocolError
+except ModuleNotFoundError:
+    from commands import CommandHandler
+    from datastore import DataStore
+    from protocol import RESPParser, ProtocolError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,7 +47,6 @@ class RedisServer:
 
                 buffer.extend(data)
 
-                # Parse and process all complete commands in the buffer
                 while buffer:
                     try:
                         parsed, consumed = RESPParser.parse_one(bytes(buffer))
@@ -52,7 +57,6 @@ class RedisServer:
                         break
 
                     if consumed == 0:
-                        # Incomplete command, wait for more data from socket
                         break
 
                     del buffer[:consumed]
@@ -60,7 +64,6 @@ class RedisServer:
                     if parsed is None:
                         continue
 
-                    # Execute command
                     if isinstance(parsed, list):
                         response = self.command_handler.execute(parsed)
                     elif isinstance(parsed, str):
@@ -68,7 +71,6 @@ class RedisServer:
                     else:
                         response = Exception("ERR invalid command format")
 
-                    # Serialize and send back response
                     writer.write(RESPParser.serialize(response))
                     await writer.drain()
 

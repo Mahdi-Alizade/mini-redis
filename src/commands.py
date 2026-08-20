@@ -1,7 +1,11 @@
 """Command dispatching and execution layer for Mini-Redis."""
 
 from typing import Any, Callable, Dict, List
-from src.datastore import DataStore
+
+try:
+    from src.datastore import DataStore
+except ModuleNotFoundError:
+    from datastore import DataStore
 
 
 class CommandHandler:
