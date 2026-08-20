@@ -36,3 +36,74 @@ mini-redis/
 │   └── client.py         # Interactive CLI client
 └── tests/
     └── test_server.py    # Automated test suite
+
+
+🛠️ Quick Start
+1. Clone & Setup Virtual Environment
+
+git clone [https://github.com/](https://github.com/)<your-username>/mini-redis.git
+cd mini-redis
+
+# Create & activate venv
+python -m venv .venv
+
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+
+# Linux / macOS
+source .venv/bin/activate
+
+# Install test dependencies
+pip install -r requirements.txt
+
+
+2. Start the Server
+
+python -m src.server
+
+3. Connect & Run Commands
+You can connect using the built-in CLI:
+
+python -m src.client
+
+
+Or connect via the official redis-cli:
+
+redis-cli -p 6379
+
+
+Example Usage
+
+127.0.0.1:6379> PING
+"PONG"
+
+127.0.0.1:6379> SET user:1 "Mahdi"
+"OK"
+
+127.0.0.1:6379> GET user:1
+"Mahdi"
+
+127.0.0.1:6379> SET session_token "abc123xyz" EX 10
+"OK"
+
+127.0.0.1:6379> TTL session_token
+(integer) 8
+
+127.0.0.1:6379> LPUSH tasks "build" "test" "deploy"
+(integer) 3
+
+127.0.0.1:6379> LRANGE tasks 0 -1
+1) "deploy"
+2) "test"
+3) "build"
+
+
+🧪 Running Tests
+Run the test suite using pytest:
+
+pytest -v
+
+
+📄 License
+This project is licensed under the MIT License.
+
