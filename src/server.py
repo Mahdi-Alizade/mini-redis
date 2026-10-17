@@ -1,4 +1,4 @@
-"""Asyncio-based TCP Server for Mini-Redis."""
+"""Asyncio-based TCP Server for Mini-Redis with AOF persistence support."""
 
 import asyncio
 import logging
@@ -8,10 +8,12 @@ try:
     from src.commands import CommandHandler
     from src.datastore import DataStore
     from src.protocol import RESPParser, ProtocolError
+    from src.aof import AOFManager
 except ModuleNotFoundError:
     from commands import CommandHandler
     from datastore import DataStore
     from protocol import RESPParser, ProtocolError
+    from aof import AOFManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,12 +23,13 @@ logger = logging.getLogger("MiniRedisServer")
 
 
 class RedisServer:
-    """High-performance asynchronous Redis clone server."""
+    """High-performance asynchronous Redis clone server with persistence."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 6379) -> None:
+    def __init__(self, host: str = "127.0.0.1", port: int = 6379, aof_file: str = "appendonly.aof") -> None:
         self.host = host
         self.port = port
-        self.datastore = DataStore()
+        self.aof_manager = AOFManager(filename=aof_file)
+        self.datastore = DataStore(aof_manager=self.aof_manager)
         self.command_handler = CommandHandler(self.datastore)
         self._server: Optional[asyncio.AbstractServer] = None
 
@@ -90,9 +93,16 @@ class RedisServer:
             self.handle_client, self.host, self.port
         )
         logger.info(f"Mini-Redis server running on {self.host}:{self.port}")
+        logger.info(f"AOF persistence active using '{self.aof_manager.filename}'")
 
         async with self._server:
             await self._server.serve_forever()
+
+    def stop(self) -> None:
+        """Gracefully close background workers and open files."""
+        if self.aof_manager:
+            logger.info("Closing AOF persistence file handle...")
+            self.aof_manager.close()
 
 
 def main() -> None:
@@ -101,6 +111,8 @@ def main() -> None:
         asyncio.run(server.start())
     except KeyboardInterrupt:
         logger.info("Mini-Redis server shutting down cleanly...")
+    finally:
+        server.stop()
 
 
 if __name__ == "__main__":
