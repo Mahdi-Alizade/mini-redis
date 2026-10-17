@@ -82,6 +82,32 @@ class TestDataStore:
         members = self.store.smembers("myset")
         assert sorted(members) == ["apple", "banana"]
 
+    def test_hash_operations(self):
+        # Adding new fields
+        added = self.store.hset("user:1", "name", "Mahdi", "age", "20")
+        assert added == 2
+        assert self.store.hget("user:1", "name") == "Mahdi"
+        assert self.store.hget("user:1", "age") == "20"
+        assert self.store.hget("user:1", "city") is None
+
+        # Updating an existing field
+        updated = self.store.hset("user:1", "age", "21")
+        assert updated == 0
+        assert self.store.hget("user:1", "age") == "21"
+
+        # Check existence
+        assert self.store.hexists("user:1", "name") == 1
+        assert self.store.hexists("user:1", "city") == 0
+
+        # Deleting fields
+        removed = self.store.hdel("user:1", "age", "nonexistent")
+        assert removed == 1
+        assert self.store.hexists("user:1", "age") == 0
+
+        # HGETALL
+        all_entries = self.store.hgetall("user:1")
+        assert all_entries == ["name", "Mahdi"]
+
 
 class TestCommandHandler:
     def setup_method(self):
@@ -97,6 +123,31 @@ class TestCommandHandler:
         assert self.handler.execute(["EXISTS", "user"]) == 1
         assert self.handler.execute(["DEL", "user"]) == 1
         assert self.handler.execute(["GET", "user"]) is None
+
+    def test_hash_commands_flow(self):
+        # HSET execution
+        resp = self.handler.execute(["HSET", "profile", "job", "developer", "city", "Tehran"])
+        assert resp == 2
+
+        # HGET execution
+        assert self.handler.execute(["HGET", "profile", "job"]) == "developer"
+        assert self.handler.execute(["HGET", "profile", "salary"]) is None
+
+        # HEXISTS execution
+        assert self.handler.execute(["HEXISTS", "profile", "city"]) == 1
+        assert self.handler.execute(["HEXISTS", "profile", "country"]) == 0
+
+        # HGETALL execution
+        all_vals = self.handler.execute(["HGETALL", "profile"])
+        assert "job" in all_vals
+        assert "developer" in all_vals
+        assert "city" in all_vals
+        assert "Tehran" in all_vals
+
+        # HDEL execution
+        del_count = self.handler.execute(["HDEL", "profile", "job"])
+        assert del_count == 1
+        assert self.handler.execute(["HGET", "profile", "job"]) is None
 
     def test_unknown_command(self):
         resp = self.handler.execute(["FOOBAR"])
@@ -120,6 +171,7 @@ class TestAOFPersistence:
         store.incr("visit_count", 5)
         store.lpush("jobs", "email", "sms")
         store.sadd("roles", "admin", "editor")
+        store.hset("config", "timeout", "30", "debug", "true")
 
         aof.close()
 
@@ -131,6 +183,8 @@ class TestAOFPersistence:
         assert recovered_store.get("visit_count") == "5"
         assert recovered_store.lrange("jobs", 0, -1) == ["sms", "email"]
         assert sorted(recovered_store.smembers("roles")) == ["admin", "editor"]
+        assert recovered_store.hget("config", "timeout") == "30"
+        assert recovered_store.hget("config", "debug") == "true"
 
         new_aof.close()
 
@@ -140,6 +194,8 @@ class TestAOFPersistence:
 
         store.set("temp_key", "data")
         store.delete("temp_key")
+        store.hset("hdata", "f1", "v1")
+        store.hdel("hdata", "f1")
 
         aof.close()
 
@@ -147,4 +203,5 @@ class TestAOFPersistence:
         recovered_store = DataStore(aof_manager=new_aof)
 
         assert recovered_store.get("temp_key") is None
+        assert recovered_store.hget("hdata", "f1") is None
         new_aof.close()
