@@ -29,6 +29,11 @@ class CommandHandler:
             "LRANGE": self._cmd_lrange,
             "SADD": self._cmd_sadd,
             "SMEMBERS": self._cmd_smembers,
+            "HSET": self._cmd_hset,
+            "HGET": self._cmd_hget,
+            "HDEL": self._cmd_hdel,
+            "HEXISTS": self._cmd_hexists,
+            "HGETALL": self._cmd_hgetall,
             "KEYS": self._cmd_keys,
             "FLUSHALL": self._cmd_flushall,
         }
@@ -75,10 +80,10 @@ class CommandHandler:
             opt = args[idx].upper()
             if opt == "EX" and idx + 1 < len(args):
                 expire_seconds = float(args[idx + 1])
-                idx += 2
+                idx = idx + 2
             elif opt == "PX" and idx + 1 < len(args):
                 expire_seconds = float(args[idx + 1]) / 1000.0
-                idx += 2
+                idx = idx + 2
             else:
                 raise ValueError("syntax error")
 
@@ -147,6 +152,42 @@ class CommandHandler:
         if len(args) != 1:
             raise ValueError("wrong number of arguments for 'smembers' command")
         return self.db.smembers(args[0])
+
+    def _cmd_hset(self, args: List[str]) -> int:
+        if len(args) < 3:
+            raise ValueError("wrong number of arguments for 'hset' command")
+        key = args[0]
+        field_values = args[1:]
+        if len(field_values) % 2 != 0:
+            raise ValueError("wrong number of arguments for 'hset' command")
+        return self.db.hset(key, *field_values)
+
+    def _cmd_hget(self, args: List[str]) -> Any:
+        if len(args) != 2:
+            raise ValueError("wrong number of arguments for 'hget' command")
+        key = args[0]
+        field = args[1]
+        return self.db.hget(key, field)
+
+    def _cmd_hdel(self, args: List[str]) -> int:
+        if len(args) < 2:
+            raise ValueError("wrong number of arguments for 'hdel' command")
+        key = args[0]
+        fields = args[1:]
+        return self.db.hdel(key, *fields)
+
+    def _cmd_hexists(self, args: List[str]) -> int:
+        if len(args) != 2:
+            raise ValueError("wrong number of arguments for 'hexists' command")
+        key = args[0]
+        field = args[1]
+        return self.db.hexists(key, field)
+
+    def _cmd_hgetall(self, args: List[str]) -> List[str]:
+        if len(args) != 1:
+            raise ValueError("wrong number of arguments for 'hgetall' command")
+        key = args[0]
+        return self.db.hgetall(key)
 
     def _cmd_keys(self, args: List[str]) -> List[str]:
         return self.db.keys()
