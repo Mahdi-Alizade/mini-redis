@@ -3,6 +3,7 @@
 import os
 import sys
 import time
+import tempfile
 import pytest
 
 # Ensure root directory is in sys.path
@@ -11,6 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from src.protocol import RESPParser, ProtocolError
 from src.datastore import DataStore
 from src.commands import CommandHandler
+from src.aof import AOFManager
 
 
 class TestRESPParser:
@@ -100,3 +102,49 @@ class TestCommandHandler:
         resp = self.handler.execute(["FOOBAR"])
         assert isinstance(resp, Exception)
         assert "unknown command" in str(resp)
+
+
+class TestAOFPersistence:
+    def setup_method(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.aof_file_path = os.path.join(self.temp_dir.name, "test_appendonly.aof")
+
+    def teardown_method(self):
+        self.temp_dir.cleanup()
+
+    def test_aof_write_and_recovery(self):
+        aof = AOFManager(filename=self.aof_file_path)
+        store = DataStore(aof_manager=aof)
+
+        store.set("server_name", "mini-redis-core")
+        store.incr("visit_count", 5)
+        store.lpush("jobs", "email", "sms")
+        store.sadd("roles", "admin", "editor")
+
+        aof.close()
+
+        # Simulate fresh server start with the same AOF file
+        new_aof = AOFManager(filename=self.aof_file_path)
+        recovered_store = DataStore(aof_manager=new_aof)
+
+        assert recovered_store.get("server_name") == "mini-redis-core"
+        assert recovered_store.get("visit_count") == "5"
+        assert recovered_store.lrange("jobs", 0, -1) == ["sms", "email"]
+        assert sorted(recovered_store.smembers("roles")) == ["admin", "editor"]
+
+        new_aof.close()
+
+    def test_aof_delete_state_recovery(self):
+        aof = AOFManager(filename=self.aof_file_path)
+        store = DataStore(aof_manager=aof)
+
+        store.set("temp_key", "data")
+        store.delete("temp_key")
+
+        aof.close()
+
+        new_aof = AOFManager(filename=self.aof_file_path)
+        recovered_store = DataStore(aof_manager=new_aof)
+
+        assert recovered_store.get("temp_key") is None
+        new_aof.close()
