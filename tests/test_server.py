@@ -3,7 +3,10 @@
 import os
 import sys
 import time
+import socket
+import asyncio
 import tempfile
+import threading
 import pytest
 
 # Ensure root directory is in sys.path
@@ -13,6 +16,7 @@ from src.protocol import RESPParser, ProtocolError
 from src.datastore import DataStore
 from src.commands import CommandHandler
 from src.aof import AOFManager
+from src.server import RedisServer
 
 
 class TestRESPParser:
@@ -83,28 +87,23 @@ class TestDataStore:
         assert sorted(members) == ["apple", "banana"]
 
     def test_hash_operations(self):
-        # Adding new fields
         added = self.store.hset("user:1", "name", "Mahdi", "age", "20")
         assert added == 2
         assert self.store.hget("user:1", "name") == "Mahdi"
         assert self.store.hget("user:1", "age") == "20"
         assert self.store.hget("user:1", "city") is None
 
-        # Updating an existing field
         updated = self.store.hset("user:1", "age", "21")
         assert updated == 0
         assert self.store.hget("user:1", "age") == "21"
 
-        # Check existence
         assert self.store.hexists("user:1", "name") == 1
         assert self.store.hexists("user:1", "city") == 0
 
-        # Deleting fields
         removed = self.store.hdel("user:1", "age", "nonexistent")
         assert removed == 1
         assert self.store.hexists("user:1", "age") == 0
 
-        # HGETALL
         all_entries = self.store.hgetall("user:1")
         assert all_entries == ["name", "Mahdi"]
 
@@ -125,26 +124,21 @@ class TestCommandHandler:
         assert self.handler.execute(["GET", "user"]) is None
 
     def test_hash_commands_flow(self):
-        # HSET execution
         resp = self.handler.execute(["HSET", "profile", "job", "developer", "city", "Tehran"])
         assert resp == 2
 
-        # HGET execution
         assert self.handler.execute(["HGET", "profile", "job"]) == "developer"
         assert self.handler.execute(["HGET", "profile", "salary"]) is None
 
-        # HEXISTS execution
         assert self.handler.execute(["HEXISTS", "profile", "city"]) == 1
         assert self.handler.execute(["HEXISTS", "profile", "country"]) == 0
 
-        # HGETALL execution
         all_vals = self.handler.execute(["HGETALL", "profile"])
         assert "job" in all_vals
         assert "developer" in all_vals
         assert "city" in all_vals
         assert "Tehran" in all_vals
 
-        # HDEL execution
         del_count = self.handler.execute(["HDEL", "profile", "job"])
         assert del_count == 1
         assert self.handler.execute(["HGET", "profile", "job"]) is None
@@ -175,7 +169,6 @@ class TestAOFPersistence:
 
         aof.close()
 
-        # Simulate fresh server start with the same AOF file
         new_aof = AOFManager(filename=self.aof_file_path)
         recovered_store = DataStore(aof_manager=new_aof)
 
@@ -205,3 +198,66 @@ class TestAOFPersistence:
         assert recovered_store.get("temp_key") is None
         assert recovered_store.hget("hdata", "f1") is None
         new_aof.close()
+
+
+class TestAuthentication:
+    @classmethod
+    def setup_class(cls):
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.aof_file = os.path.join(cls.temp_dir.name, "auth_test.aof")
+        cls.test_port = 6389
+        cls.test_password = "supersecretpass"
+        cls.server = RedisServer(
+            host="127.0.0.1",
+            port=cls.test_port,
+            aof_file=cls.aof_file,
+            password=cls.test_password,
+        )
+
+        def run_srv():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(cls.server.start())
+
+        cls.thread = threading.Thread(target=run_srv, daemon=True)
+        cls.thread.start()
+        time.sleep(0.3)
+
+    @classmethod
+    def teardown_class(cls):
+        cls.server.stop()
+        cls.temp_dir.cleanup()
+
+    def _send_cmd(self, sock, parts):
+        payload = RESPParser.serialize(parts)
+        sock.sendall(payload)
+        resp_data = sock.recv(4096)
+        parsed, _ = RESPParser.parse_one(resp_data)
+        return parsed
+
+    def test_auth_enforcement_flow(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect(("127.0.0.1", self.test_port))
+
+        # Command without authentication should fail
+        res_noauth = self._send_cmd(s, ["SET", "k1", "v1"])
+        assert isinstance(res_noauth, Exception)
+        assert "NOAUTH" in str(res_noauth)
+
+        # Wrong password should fail
+        res_wrong = self._send_cmd(s, ["AUTH", "wrongpass"])
+        assert isinstance(res_wrong, Exception)
+        assert "invalid password" in str(res_wrong)
+
+        # Correct password should succeed
+        res_ok = self._send_cmd(s, ["AUTH", self.test_password])
+        assert res_ok == "OK"
+
+        # Now regular commands should succeed
+        res_set = self._send_cmd(s, ["SET", "k1", "v1"])
+        assert res_set == "OK"
+
+        res_get = self._send_cmd(s, ["GET", "k1"])
+        assert res_get == "v1"
+
+        s.close()
