@@ -34,6 +34,7 @@ class CommandHandler:
             "HDEL": self._cmd_hdel,
             "HEXISTS": self._cmd_hexists,
             "HGETALL": self._cmd_hgetall,
+            "BGREWRITEAOF": self._cmd_bgrewriteaof,
             "KEYS": self._cmd_keys,
             "FLUSHALL": self._cmd_flushall,
         }
@@ -188,6 +189,12 @@ class CommandHandler:
             raise ValueError("wrong number of arguments for 'hgetall' command")
         key = args[0]
         return self.db.hgetall(key)
+
+    def _cmd_bgrewriteaof(self, args: List[str]) -> str:
+        success = self.db.rewrite_aof()
+        if not success:
+            raise Exception("ERR AOF rewrite failed or AOF is disabled")
+        return "Background append only file rewriting started"
 
     def _cmd_keys(self, args: List[str]) -> List[str]:
         return self.db.keys()
