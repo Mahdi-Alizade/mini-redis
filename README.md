@@ -17,7 +17,7 @@
 
 Mini-Redis is an educational yet production-minded clone of Redis. Built using Python's native non-blocking `asyncio` event loop, it completely implements the **Redis Serialization Protocol (RESP2)**.
 
-It includes real-time disk persistence (**Append-Only File - AOF**), granular **Key Expiration (TTL)**, rich data structures (**Strings, Lists, Sets, and Hashes**), and connection authorization guards via `AUTH`.
+It includes real-time disk persistence (**Append-Only File - AOF**) with **Atomic Log Compaction (`BGREWRITEAOF`)**, granular **Key Expiration (TTL)**, rich data structures (**Strings, Lists, Sets, and Hashes**), and connection authorization guards via `AUTH`.
 
 You can interact with it using either the **official `redis-cli`** or the included built-in interactive Python client.
 
@@ -26,7 +26,7 @@ You can interact with it using either the **official `redis-cli`** or the includ
 ## ✨ Features
 
 - **⚡ Asynchronous TCP Engine**: Non-blocking network I/O capable of handling multiple concurrent clients without thread thrashing.
-- **💾 AOF Persistence**: Write-ahead transaction logging ensuring zero data loss across server restarts.
+- **💾 AOF Persistence & Compaction**: Write-ahead transaction logging ensuring zero data loss across server restarts, paired with safe log compaction (`BGREWRITEAOF`) that eliminates redundant historical operations.
 - **🔐 Connection Security**: Optional password-based access control via `AUTH` command and environment variable configuration.
 - **📡 RESP2 Streaming Parser**: Pure byte-stream parsing supporting Simple Strings, Errors, Integers, Bulk Strings, and Arrays.
 - **⏳ Active & Lazy TTL**: Key eviction mechanics supporting both `EX` (seconds) and `PX` (milliseconds) duration flags.
@@ -43,12 +43,19 @@ You can interact with it using either the **official `redis-cli`** or the includ
 | **Hashes** | `HSET`, `HGET`, `HDEL`, `HEXISTS`, `HGETALL` | Nested key-value dictionary structures |
 | **Lists** | `LPUSH`, `RPUSH`, `LRANGE` | Bidirectional queue and linked-list operations |
 | **Sets** | `SADD`, `SMEMBERS` | Unique, unordered collection manipulation |
+| **Persistence** | `BGREWRITEAOF` | Asynchronously compacts append-only log to minimal state snapshot |
 | **Keys & Lifecycle** | `DEL`, `EXISTS`, `EXPIRE`, `TTL`, `KEYS`, `FLUSHALL` | Store introspection and key eviction |
 | **Connection & Security** | `AUTH`, `PING`, `ECHO`, `QUIT` | Session authorization and diagnostic probes |
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture & AOF Compaction
+
+When write traffic grows, the append-only log accumulates obsolete commands (e.g., deleted keys or intermediate `INCR` steps). Mini-Redis solves log bloat via **Atomic Compaction**:
+
+1. Takes an in-memory snapshot of active keys and remaining TTL values.
+2. Writes the minimal reconstruction commands into an isolated temp file (`appendonly.aof.tmp`).
+3. Safely swaps the temp file with the active log using an atomic filesystem operation (`os.replace`).
 
 ```text
                      +---------------------------+
@@ -80,7 +87,8 @@ You can interact with it using either the **official `redis-cli`** or the includ
          +---------------------------+   +---------------------------+
          |      src/datastore.py     |   |        src/aof.py         |
          |  - RAM Hash-Maps          |   |  - Append-Only File Log   |
-         |  - Expiration (TTL) Heap  |   |  - State Replay on Boot   |
+         |  - Expiration (TTL) Heap  |   |  - BGREWRITEAOF Engine    |
+         |  - State Snapshot Engine  |   |  - Atomic OS Log Swapper  |
          +---------------------------+   +---------------------------+
 🚀 Quick Start
 1. Installation
@@ -136,16 +144,12 @@ Plaintext
 5) "visits"
 6) "1"
 
-127.0.0.1:6379> LPUSH tasks "build_engine" "add_tests"
-(integer) 2
-
-127.0.0.1:6379> LRANGE tasks 0 -1
-1) "add_tests"
-2) "build_engine"
+127.0.0.1:6379> BGREWRITEAOF
+"Background append only file rewriting started"
 🧪 Testing
-The test suite validates socket event loops, AOF write and recovery sequences, authentication gates, and all data structure operations:
+The test suite validates socket event loops, AOF write and recovery sequences, AOF rewrite file size reduction, authentication gates, and all data structure operations:
 
 Bash
 pytest -v
 📄 License
-This project is licensed under the MIT License.
+Distributed under the MIT License. See LICENSE for more information.
