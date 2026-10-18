@@ -143,6 +143,19 @@ class TestCommandHandler:
         assert del_count == 1
         assert self.handler.execute(["HGET", "profile", "job"]) is None
 
+    def test_bgrewriteaof_command(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        aof_path = os.path.join(temp_dir.name, "bgrewrite_cmd.aof")
+        aof = AOFManager(filename=aof_path)
+        store = DataStore(aof_manager=aof)
+        handler = CommandHandler(store)
+
+        resp = handler.execute(["BGREWRITEAOF"])
+        assert "Background append only file rewriting started" in resp
+
+        aof.close()
+        temp_dir.cleanup()
+
     def test_unknown_command(self):
         resp = self.handler.execute(["FOOBAR"])
         assert isinstance(resp, Exception)
@@ -199,6 +212,43 @@ class TestAOFPersistence:
         assert recovered_store.hget("hdata", "f1") is None
         new_aof.close()
 
+    def test_aof_rewrite_compaction_and_data_integrity(self):
+        aof = AOFManager(filename=self.aof_file_path)
+        store = DataStore(aof_manager=aof)
+
+        # Generate a bloated history of writes
+        for i in range(50):
+            store.set("counter_key", str(i))
+            store.set("transient_key", "will_be_deleted")
+            store.delete("transient_key")
+
+        store.hset("active_profile", "status", "online")
+        store.rpush("log_queue", "event1", "event2")
+
+        initial_size = os.path.getsize(self.aof_file_path)
+
+        # Trigger rewrite
+        rewrite_success = store.rewrite_aof()
+        assert rewrite_success is True
+
+        compacted_size = os.path.getsize(self.aof_file_path)
+
+        # Compacted file should be substantially smaller
+        assert compacted_size < initial_size
+
+        aof.close()
+
+        # Verify state restoration from compacted file
+        fresh_aof = AOFManager(filename=self.aof_file_path)
+        recovered = DataStore(aof_manager=fresh_aof)
+
+        assert recovered.get("counter_key") == "49"
+        assert recovered.get("transient_key") is None
+        assert recovered.hget("active_profile", "status") == "online"
+        assert recovered.lrange("log_queue", 0, -1) == ["event1", "event2"]
+
+        fresh_aof.close()
+
 
 class TestAuthentication:
     @classmethod
@@ -239,21 +289,17 @@ class TestAuthentication:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect(("127.0.0.1", self.test_port))
 
-        # Command without authentication should fail
         res_noauth = self._send_cmd(s, ["SET", "k1", "v1"])
         assert isinstance(res_noauth, Exception)
         assert "NOAUTH" in str(res_noauth)
 
-        # Wrong password should fail
         res_wrong = self._send_cmd(s, ["AUTH", "wrongpass"])
         assert isinstance(res_wrong, Exception)
         assert "invalid password" in str(res_wrong)
 
-        # Correct password should succeed
         res_ok = self._send_cmd(s, ["AUTH", self.test_password])
         assert res_ok == "OK"
 
-        # Now regular commands should succeed
         res_set = self._send_cmd(s, ["SET", "k1", "v1"])
         assert res_set == "OK"
 
