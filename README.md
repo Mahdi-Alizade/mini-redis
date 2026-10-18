@@ -1,214 +1,151 @@
-markdown
+<div align="center">
 
-# Mini-Redis
+# ⚡ Mini-Redis
 
-A lightweight, asynchronous, in-memory key-value database implemented in pure Python from scratch. The server speaks the Redis Serialization Protocol (RESP2) over a non-blocking TCP socket server powered by Python's native `asyncio` — and is fully compatible with the official `redis-cli` tool.
+**A robust, asynchronous in-memory key-value store and Redis clone built from scratch in Python.**
 
----
+[![CI](https://github.com/MahdiAlizadeh/mini-redis/actions/workflows/ci.yml/badge.svg)](https://github.com/MahdiAlizadeh/mini-redis/actions)
+![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Redis CLI Compatible](https://img.shields.io/badge/RESP2-Compatible-red)
 
-## Overview
-
-Mini-Redis is a from-scratch implementation of a Redis-compatible server. It provides:
-
-1. An asynchronous TCP socket server (port 6379) handling multiple concurrent connections via `asyncio`.
-2. A full RESP2 protocol parser and serializer.
-3. Native support for Strings, Lists, and Sets.
-4. TTL and key expiration with both active and lazy strategies.
-5. A zero-dependency runtime — only the Python standard library is used in production code.
-6. A built-in interactive Python client for testing and exploration.
+</div>
 
 ---
 
-## Features
+## 🎯 Overview
 
-- **Pure Python, zero external runtime dependencies**
-- **`asyncio` event loop** — non-blocking, concurrent connection handling
-- **Full RESP2 parser/serializer** — Simple Strings, Errors, Integers, Bulk Strings, Arrays
-- **Key expiration** — supports both `EX` (seconds) and `PX` (milliseconds) flags; active + lazy expiration
-- **Built-in interactive client** — spawn a CLI session without `redis-cli`
-- **100% test coverage** — `pytest` suite plus a GitHub Actions CI workflow
-- **Compatible with `redis-cli`** — send commands from the official Redis client
+Mini-Redis is an educational yet production-minded clone of Redis. Built using Python's native non-blocking `asyncio` event loop, it completely implements the **Redis Serialization Protocol (RESP2)**.
+
+It includes real-time disk persistence (**Append-Only File - AOF**), granular **Key Expiration (TTL)**, rich data structures (**Strings, Lists, Sets, and Hashes**), and connection authorization guards via `AUTH`.
+
+You can interact with it using either the **official `redis-cli`** or the included built-in interactive Python client.
 
 ---
 
-## Tech Stack
+## ✨ Features
 
-- Python 3.11+
-- `asyncio` — native async I/O
-- `pytest` — testing
-- Zero external runtime dependencies
+- **⚡ Asynchronous TCP Engine**: Non-blocking network I/O capable of handling multiple concurrent clients without thread thrashing.
+- **💾 AOF Persistence**: Write-ahead transaction logging ensuring zero data loss across server restarts.
+- **🔐 Connection Security**: Optional password-based access control via `AUTH` command and environment variable configuration.
+- **📡 RESP2 Streaming Parser**: Pure byte-stream parsing supporting Simple Strings, Errors, Integers, Bulk Strings, and Arrays.
+- **⏳ Active & Lazy TTL**: Key eviction mechanics supporting both `EX` (seconds) and `PX` (milliseconds) duration flags.
+- **🧩 4 Core Data Structures**: Full handling for Strings, Lists, Sets, and Hash Dictionaries.
+- **🛡️ Zero Runtime Dependencies**: Relies exclusively on standard library modules.
 
 ---
 
-## Installation
+## 📋 Command Matrix
 
-### Prerequisites
+| Category | Commands | Description |
+| :--- | :--- | :--- |
+| **Strings & Numbers** | `SET`, `GET`, `INCR`, `DECR` | Value manipulation with optional `EX`/`PX` expiration |
+| **Hashes** | `HSET`, `HGET`, `HDEL`, `HEXISTS`, `HGETALL` | Nested key-value dictionary structures |
+| **Lists** | `LPUSH`, `RPUSH`, `LRANGE` | Bidirectional queue and linked-list operations |
+| **Sets** | `SADD`, `SMEMBERS` | Unique, unordered collection manipulation |
+| **Keys & Lifecycle** | `DEL`, `EXISTS`, `EXPIRE`, `TTL`, `KEYS`, `FLUSHALL` | Store introspection and key eviction |
+| **Connection & Security** | `AUTH`, `PING`, `ECHO`, `QUIT` | Session authorization and diagnostic probes |
 
-- Python 3.11+
-- Git
+---
 
-### Steps
+## 🏗️ Architecture
 
-```bash
-git clone https://github.com/<username>/mini-redis.git
+```text
+                     +---------------------------+
+                     |  Client (redis-cli / App) |
+                     +-------------+-------------+
+                                   | (Raw RESP2 TCP Stream)
+                                   v
+                     +---------------------------+
+                     |       src/server.py       |
+                     |  - Asyncio TCP Server     |
+                     |  - Connection Auth Guard  |
+                     +-------------+-------------+
+                                   |
+                                   v
+                     +---------------------------+
+                     |       src/protocol.py     |
+                     |  (Streaming RESP Parser)  |
+                     +-------------+-------------+
+                                   |
+                                   v
+                     +---------------------------+
+                     |       src/commands.py     |
+                     |  (Command Dispatch Table) |
+                     +-------------+-------------+
+                                   |
+                       +-----------+-----------+
+                       |                       |
+                       v                       v
+         +---------------------------+   +---------------------------+
+         |      src/datastore.py     |   |        src/aof.py         |
+         |  - RAM Hash-Maps          |   |  - Append-Only File Log   |
+         |  - Expiration (TTL) Heap  |   |  - State Replay on Boot   |
+         +---------------------------+   +---------------------------+
+🚀 Quick Start
+1. Installation
+Bash
+# Clone the repository
+git clone [https://github.com/MahdiAlizadeh/mini-redis.git](https://github.com/MahdiAlizadeh/mini-redis.git)
 cd mini-redis
-Create and activate a virtual environment:
 
-bash
+# Create and activate virtual environment (Windows)
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 
-python -m venv venv
-Windows (PowerShell):
-powershell
+# Install dev/test dependencies
+pip install -r requirements.txt
+2. Configure & Run Server
+Run with default settings (no password required):
 
-.\venv\Scripts\Activate.ps1
-Linux / macOS:
-bash
-
-source venv/bin/activate
-Install development dependencies (for pytest only):
-
-bash
-
-pip install pytest
-No runtime dependencies are required.
-
-Configuration
-The server runs with sensible defaults and requires no configuration files or environment variables.
-
-| Setting | Default | | --------------------- | ----------- | | Host | 127.0.0.1 | | Port | 6379 |
-
-You can change the port by passing it as a command-line argument (see Usage).
-
-Usage
-Start the server
-bash
-
+Bash
 python -m src.server
-To bind a specific port:
+Or enable authentication by setting the environment variable:
 
-bash
+PowerShell
+$env:MINI_REDIS_PASSWORD = "your_secure_password"
+python -m src.server
+3. Connect & Interact
+Connect via the built-in interactive CLI:
 
-python -m src.server 7000
-Connect with redis-cli
-bash
-
-redis-cli -p 6379
-Connect with the built-in client
-bash
-
+Bash
 python -m src.client
-This launches an interactive prompt where you can type RESP commands directly.
+Or connect via the official Redis CLI:
 
-Supported Commands
-Key / Value
-| Command | Description | | ------------------- | ------------------------------ | | SET key value | Store a string value | | GET key | Retrieve a string value | | DEL key [key ...] | Delete one or more keys | | EXISTS key [key ...] | Check if keys exist | | KEYS pattern | List keys matching a glob pattern | | FLUSHALL | Delete all keys |
+Bash
+redis-cli -p 6379
+💻 Interactive Session Example
+Plaintext
+127.0.0.1:6379> AUTH your_secure_password
+"OK"
 
-Arithmetic
-| Command | Description | | ------- | ----------------------- | | INCR key | Increment integer value by 1 | | DECR key | Decrement integer value by 1 |
+127.0.0.1:6379> SET user:1001 "Mahdi" EX 60
+"OK"
 
-TTL Management
-| Command | Description | | --------------- | --------------------------------- | | EXPIRE key seconds | Set time-to-live in seconds | | TTL key | Get remaining time-to-live in seconds |
+127.0.0.1:6379> TTL user:1001
+(integer) 58
 
-Lists
-| Command | Description | | ------------------ | --------------------------------- | | LPUSH key value [value ...] | Prepend values to list | | RPUSH key value [value ...] | Append values to list | | LRANGE key start stop | Get a range of list elements |
+127.0.0.1:6379> HSET user:profile name "Mahdi" role "Admin" visits 1
+(integer) 3
 
-Sets
-| Command | Description | | ---------------------- | --------------------------------- | | SADD key member [member ...] | Add members to a set | | SMEMBERS key | Get all members of a set |
+127.0.0.1:6379> HGETALL user:profile
+1) "name"
+2) "Mahdi"
+3) "role"
+4) "Admin"
+5) "visits"
+6) "1"
 
-Server / Utility
-| Command | Description | | ------------- | -------------------------- | | PING | Server liveness check | | ECHO message | Echo the input message | | QUIT | Close the connection |
+127.0.0.1:6379> LPUSH tasks "build_engine" "add_tests"
+(integer) 2
 
-CLI / API
-Server
-text
+127.0.0.1:6379> LRANGE tasks 0 -1
+1) "add_tests"
+2) "build_engine"
+🧪 Testing
+The test suite validates socket event loops, AOF write and recovery sequences, authentication gates, and all data structure operations:
 
-python -m src.server [port]
-| Argument | Description | | -------------- | ----------------------- | | port | Port to bind to default: 6379 |
-
-Client
-text
-
-python -m src.client [host] [port]
-| Argument | Description | | -------------- | -------------------------------- | | host | Server host default: 127.0.0.1 | | port | Server port default: 6379 |
-
-Project Structure
-text
-
-├── src/
-│   ├── protocol.py      # RESP parser and serializer
-│   ├── datastore.py     # In-memory storage engine + expiration logic
-│   ├── commands.py      # Command dispatch and execution handler
-│   ├── server.py        # Asyncio TCP socket server
-│   └── client.py        # Interactive command-line client
-├── tests/
-│   └── test_server.py   # pytest test suite
-└── README.md
-Architecture
-text
-
-redis-cli / built-in client
-          |
-          v
-  +---------------------+
-  |  asyncio TCP Server |
-  +---------------------+
-          |
-          v
-  +---------------------+
-  |   RESP Parser       |
-  |   (protocol.py)     |
-  +---------------------+
-          |
-          v
-  +---------------------+
-  |  Command Dispatcher |
-  |  (commands.py)      |
-  +---------------------+
-          |
-          v
-  +---------------------+
-  |   Datastore         |
-  |  (datastore.py)     |
-  +---------------------+
-Each layer is decoupled for easy testing and modification.
-
-Testing
-Run the full test suite:
-
-bash
-
-pytest tests/ -v
-The suite covers:
-
-RESP protocol parsing and serialization
-All implemented commands
-TTL and expiration behaviors (active + lazy)
-Concurrent connection handling
-Edge cases and error handling
-Coverage: 100%
-
-Deployment
-Mini-Redis is designed for educational purposes and lightweight local use. To run it persistently on a server:
-
-Install Python 3.11+
-Clone the repository
-Start the server with python -m src.server
-Optionally wrap it in systemd, supervisord, or a Docker container
-No standalone configuration or service installation required.
-
-Contributing
-Contributions are welcome.
-
-Fork the repository
-Create a feature branch:
-bash
-
-git checkout -b feature/my-feature
-Commit your changes
-Push the branch
-Open a pull request
-Ensure all tests pass and coverage stays at 100%.
-
-License
-Released under the MIT License.
-
+Bash
+pytest -v
+📄 License
+This project is licensed under the MIT License.
