@@ -1,11 +1,11 @@
-"""In-memory Key-Value store with TTL, expiration, and Hash support."""
+"""In-memory Key-Value store with TTL, expiration, Hash, and AOF rewrite support."""
 
 import time
 from typing import Any, Dict, List, Optional, Set
 
 
 class DataStore:
-    """Core in-memory storage supporting strings, lists, sets, hashes, and key expiration."""
+    """Core in-memory storage supporting strings, lists, sets, hashes, key expiration, and AOF rewrite."""
 
     def __init__(self, aof_manager=None) -> None:
         self._data: Dict[str, Any] = {}
@@ -49,7 +49,6 @@ class DataStore:
                 self.sadd(args[0], *args[1:], log_aof=False)
 
             elif op == "HSET" and len(args) >= 3:
-                # Replay HSET into dictionary
                 key = args[0]
                 pairs = args[1:]
                 field_val_list = []
@@ -62,9 +61,27 @@ class DataStore:
             elif op == "HDEL" and len(args) >= 2:
                 self._internal_hdel(args[0], *args[1:])
 
+            elif op == "EXPIRE" and len(args) >= 2:
+                try:
+                    secs = float(args[1])
+                    self._expires[args[0]] = time.time() + secs
+                except (ValueError, IndexError):
+                    pass
+
             elif op == "FLUSHALL":
                 self._data.clear()
                 self._expires.clear()
+
+    def rewrite_aof(self) -> bool:
+        """Triggers a compaction and rewrite of the append-only file."""
+        if not self.aof:
+            return False
+
+        # Create shallow copies of current state to prevent mutation during iteration
+        snapshot_data = dict(self._data)
+        snapshot_expires = dict(self._expires)
+
+        return self.aof.rewrite(snapshot_data, snapshot_expires)
 
     def is_expired(self, key: str) -> bool:
         if key not in self._expires:
