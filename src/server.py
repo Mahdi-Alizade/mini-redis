@@ -1,5 +1,6 @@
-"""Asyncio-based TCP Server for Mini-Redis with AOF persistence support."""
+"""Asyncio-based TCP Server for Mini-Redis with AOF persistence and AUTH support."""
 
+import os
 import asyncio
 import logging
 from typing import Optional
@@ -23,11 +24,18 @@ logger = logging.getLogger("MiniRedisServer")
 
 
 class RedisServer:
-    """High-performance asynchronous Redis clone server with persistence."""
+    """High-performance asynchronous Redis clone server with persistence and authentication."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 6379, aof_file: str = "appendonly.aof") -> None:
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 6379,
+        aof_file: str = "appendonly.aof",
+        password: Optional[str] = None,
+    ) -> None:
         self.host = host
         self.port = port
+        self.required_password = password or os.getenv("MINI_REDIS_PASSWORD")
         self.aof_manager = AOFManager(filename=aof_file)
         self.datastore = DataStore(aof_manager=self.aof_manager)
         self.command_handler = CommandHandler(self.datastore)
@@ -39,6 +47,7 @@ class RedisServer:
         peer_name = writer.get_extra_info("peername")
         logger.info(f"Client connected from {peer_name}")
 
+        is_authenticated = self.required_password is None
         buffer = bytearray()
 
         try:
@@ -67,13 +76,53 @@ class RedisServer:
                     if parsed is None:
                         continue
 
+                    # Extract command name and arguments
+                    parts = []
                     if isinstance(parsed, list):
-                        response = self.command_handler.execute(parsed)
+                        parts = parsed
                     elif isinstance(parsed, str):
-                        response = self.command_handler.execute([parsed])
+                        parts = [parsed]
                     else:
-                        response = Exception("ERR invalid command format")
+                        writer.write(RESPParser.serialize(Exception("ERR invalid command format")))
+                        await writer.drain()
+                        continue
 
+                    if not parts:
+                        continue
+
+                    cmd_name = str(parts[0]).upper()
+
+                    # Handle QUIT command directly
+                    if cmd_name == "QUIT":
+                        writer.write(RESPParser.serialize_simple_string("OK"))
+                        await writer.drain()
+                        return
+
+                    # Handle AUTH command
+                    if cmd_name == "AUTH":
+                        if len(parts) != 2:
+                            response = Exception("ERR wrong number of arguments for 'auth' command")
+                        elif self.required_password is None:
+                            response = Exception("ERR Client sent AUTH, but no password is set")
+                        elif parts[1] == self.required_password:
+                            is_authenticated = True
+                            response = "OK"
+                        else:
+                            response = Exception("ERR invalid password")
+
+                        writer.write(RESPParser.serialize(response))
+                        await writer.drain()
+                        continue
+
+                    # Guard unauthenticated access
+                    if not is_authenticated:
+                        err_msg = Exception("NOAUTH Authentication required.")
+                        writer.write(RESPParser.serialize(err_msg))
+                        await writer.drain()
+                        continue
+
+                    # Execute normal database commands
+                    response = self.command_handler.execute(parts)
                     writer.write(RESPParser.serialize(response))
                     await writer.drain()
 
@@ -94,6 +143,8 @@ class RedisServer:
         )
         logger.info(f"Mini-Redis server running on {self.host}:{self.port}")
         logger.info(f"AOF persistence active using '{self.aof_manager.filename}'")
+        if self.required_password:
+            logger.info("Security: Password authentication enabled")
 
         async with self._server:
             await self._server.serve_forever()
